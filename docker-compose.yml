@@ -1,0 +1,38 @@
+services:
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_WEB}:15672"
+    networks:
+      - trafego
+
+  chaos:
+    build: ./chaos
+    container_name: chaos
+    privileged: true
+    network_mode: "service:rabbitmq"
+    depends_on:
+      - rabbitmq
+
+networks:
+  trafego:
+    driver: bridge
+
+# Módulo 2
+# publisher:
+#   build: ./publisher
+
+# Módulo 3
+# subscriber:
+#   build: ./subscriber
+
+# Módulo 4
+# recovery:
+#   build: ./recovery
