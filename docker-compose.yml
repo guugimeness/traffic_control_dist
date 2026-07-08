@@ -5,11 +5,11 @@ services:
     container_name: rabbitmq
     hostname: rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
     ports:
-      - "${RABBITMQ_PORT}:5672"
-      - "${RABBITMQ_WEB}:15672"
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_WEB:-15672}:15672"
     networks:
       - trafego
 
@@ -21,18 +21,57 @@ services:
     depends_on:
       - rabbitmq
 
+  # Módulo 2 (Nomes dos serviços alterados para forçar leitura nova)
+  pub_0:
+    build: ./publisher
+    image: sensor_img
+    container_name: sensor_ntp
+    environment:
+      - SENSOR_ID=0
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    depends_on:
+      - rabbitmq
+    networks:
+      - trafego
+
+  pub_a:
+    build: ./publisher
+    image: sensor_img
+    container_name: sensor_a
+    environment:
+      - SENSOR_ID=A
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    depends_on:
+      - rabbitmq
+    networks:
+      - trafego
+
+  pub_b:
+    build: ./publisher
+    image: sensor_img
+    container_name: sensor_b
+    environment:
+      - SENSOR_ID=B
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    depends_on:
+      - rabbitmq
+    networks:
+      - trafego
+
 networks:
   trafego:
     driver: bridge
 
-# Módulo 2
-# publisher:
-#   build: ./publisher
-
 # Módulo 3
-# subscriber:
-#   build: ./subscriber
+#  subscriber:
+#    build: ./subscriber
 
 # Módulo 4
-# recovery:
-#   build: ./recovery
+#  recovery:
+#    build: ./recovery

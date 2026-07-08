@@ -58,6 +58,20 @@ Atualmente são simulados:
 Essas alterações são aplicadas automaticamente enquanto o sistema está em execução.
 
 ## Módulo 2
+Módulo 2
+
+Este módulo aborda os Produtores (Publishers) e Tempo Lógico. 
+
+As principais responsabilidades da implementação são:
+
+* *Sensores de Tráfego:* Desenvolvimento dos nós sensores de tráfego em Python.
+* *Simulação de Dados:* O sistema simula múltiplas instâncias que enviam dados de fluxo de veículos de forma autônoma.
+* *Ordenação Causal:* Como a rede será instável, implementa Relógios Vetoriais anexados a cada mensagem enviada, garantindo a ordenação causal dos eventos no destino.
+* *Deriva de Relógio Físico Isolado (Restrição C):* Cada contêiner de sensor introduzirá uma taxa de erro artificial em seu relógio de sistema (ex: acelerar ou atrasar artificialmente em relação ao tempo real do host). Como é proibido consultar servidores NTP externos da internet, foi implementado um mecanismo nativo de correção.
+* *Sincronização de Tempo Distribuída:* O módulo codifica manualmente uma variação do Algoritmo de Cristian utilizando o próprio middleware Pub-Sub para calcular o offset de tempo de cada contêiner e sincronizar os relógios internamente de forma distribuída.
+* *Resiliência Extrema e Auto-Healing:* A arquitetura de conexão inclui tratamento avançado de exceções de rede e socket. Isso permite blindar o sistema contra as corrupções de frames e quebras de AMQP geradas pelos picos de latência (até 4000ms), recuperando e reiniciando a publicação de dados automaticamente.
+
+*Nota sobre execução:* Para interromper a execução dos nós sensores e encerrar o script com segurança, pressione Ctrl + C no terminal onde os logs estão sendo exibidos, ou utilize o comando docker compose down.
 
 ## Módulo 3
 
