@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 WORKDIR /app
 
 # Copia o arquivo de dependências e instala

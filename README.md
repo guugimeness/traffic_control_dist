@@ -1,4 +1,4 @@
-# Sistemas Distribuídos - Traffic Contro
+# Sistemas Distribuídos - Traffic Control
 
 O sistema simula um ambiente de controle de tráfego utilizando comunicação distribuída via RabbitMQ, além de mecanismos de Chaos Engineering para validação de tolerância a falhas.
 
@@ -58,7 +58,6 @@ Atualmente são simulados:
 Essas alterações são aplicadas automaticamente enquanto o sistema está em execução.
 
 ## Módulo 2
-Módulo 2
 
 Este módulo aborda os Produtores (Publishers) e Tempo Lógico. 
 
@@ -71,8 +70,20 @@ As principais responsabilidades da implementação são:
 * *Sincronização de Tempo Distribuída:* O módulo codifica manualmente uma variação do Algoritmo de Cristian utilizando o próprio middleware Pub-Sub para calcular o offset de tempo de cada contêiner e sincronizar os relógios internamente de forma distribuída.
 * *Resiliência Extrema e Auto-Healing:* A arquitetura de conexão inclui tratamento avançado de exceções de rede e socket. Isso permite blindar o sistema contra as corrupções de frames e quebras de AMQP geradas pelos picos de latência (até 4000ms), recuperando e reiniciando a publicação de dados automaticamente.
 
-*Nota sobre execução:* Para interromper a execução dos nós sensores e encerrar o script com segurança, pressione Ctrl + C no terminal onde os logs estão sendo exibidos, ou utilize o comando docker compose down.
-
 ## Módulo 3
+
+Este módulo implementa os **Semáforos Inteligentes** — os nós consumidores (Subscribers) do sistema.
+
+As principais responsabilidades são:
+
+* **Consumo de Dados de Tráfego:** Cada instância assina a exchange `traffic_data` e recebe dados dos sensores em tempo real.
+* **Ordenação Causal (Restrição A):** As mensagens chegam fora de ordem devido à rede instável. O módulo implementa um **buffer causal** baseado nos Relógios Vetoriais enviados pelos publishers. Uma mensagem só é processada quando todos os eventos causalmente anteriores já foram recebidos.
+* **Eleição de Líder — Algoritmo de Bully (Restrição B):** O controle dos semáforos exige um único coordenador. O módulo implementa o Algoritmo de Bully: ao detectar a ausência do líder (via timeout de heartbeat), o nó dispara uma eleição, enviando mensagens `ELECTION` para nós de maior ID. O nó de maior ID ativo vence e transmite `COORDINATOR` para todos.
+* **Quórum Absoluto e Prevenção de Split-Brain (Restrição B):** Antes de qualquer eleição, o nó executa um `QUORUM_CHECK`: verifica quantos dos 4 nós estão ativos. Se menos de 3 nós (maioria estrita de 4) responderem, o nó entra em **SAFE_MODE** e para de emitir comandos de tráfego — evitando a existência de múltiplos líderes em caso de partição de rede.
+* **Heartbeats:** O líder eleito envia `HEARTBEAT` a cada 5 segundos. Os followers monitoram o timeout (15s) e disparam nova eleição se o líder sumir.
+
+### Topologia de Instâncias
+
+São executadas **4 instâncias** (`sub_1` a `sub_4`), com IDs de 1 a 4. O quórum exige **3 nós ativos** (maioria estrita). Em uma partição 2-2, nenhum lado tem maioria e ambos entram em SAFE_MODE.
 
 ## Módulo 4
