@@ -64,14 +64,70 @@ services:
     networks:
       - trafego
 
+  # Módulo 3 — Semáforos Inteligentes (Subscribers)
+  sub_1:
+    build: ./subscriber
+    container_name: sub_1
+    environment:
+      - NODE_ID=1
+      - TOTAL_NODES=4
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    depends_on:
+      - rabbitmq
+    networks:
+      - trafego
+
+  sub_2:
+    build: ./subscriber
+    image: subscriber_img
+    container_name: sub_2
+    environment:
+      - NODE_ID=2
+      - TOTAL_NODES=4
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    depends_on:
+      - rabbitmq
+    networks:
+      - trafego
+
+  sub_3:
+    build: ./subscriber
+    image: subscriber_img
+    container_name: sub_3
+    environment:
+      - NODE_ID=3
+      - TOTAL_NODES=4
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    depends_on:
+      - rabbitmq
+    networks:
+      - trafego
+
+  sub_4:
+    build: ./subscriber
+    image: subscriber_img
+    container_name: sub_4
+    environment:
+      - NODE_ID=4
+      - TOTAL_NODES=4
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    depends_on:
+      - rabbitmq
+    networks:
+      - trafego
+
 networks:
   trafego:
     driver: bridge
 
-# Módulo 3
-#  subscriber:
-#    build: ./subscriber
-
 # Módulo 4
 #  recovery:
-#    build: ./recovery
+#    build: ./recover
