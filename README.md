@@ -101,7 +101,7 @@ Persistência
 
 Cada Publisher e Subscriber possui um volume Docker exclusivo para armazenamento dos checkpoints, garantindo que o estado seja preservado mesmo após a recriação do contêiner.
 
-Teste de Recuperação
+### Teste de Recuperação
 
 Para simular uma falha, basta finalizar qualquer publisher ou subscriber:
 ```bash
