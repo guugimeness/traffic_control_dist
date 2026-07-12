@@ -92,11 +92,11 @@ Este módulo implementa os mecanismos de Estado, Tolerância a Falhas e Recupera
 
 As principais responsabilidades são:
 
-Detecção de Falhas: Os subscribers monitoram continuamente a presença do líder através de mensagens de Heartbeat. Caso o heartbeat deixe de ser recebido dentro do tempo limite, uma nova eleição é iniciada automaticamente.
-Persistência de Estado: Publishers e Subscribers realizam checkpoints locais periódicos, armazenando informações importantes como relógios vetoriais, estado do nó, mensagens pendentes e histórico de processamento.
-Recuperação Automática: Em caso de falha abrupta (por exemplo, utilizando docker kill), o Docker reinicia automaticamente o contêiner. Durante a inicialização, o nó recupera seu último checkpoint válido e continua sua execução sem reiniciar completamente seu estado.
-Processamento Seguro de Mensagens: Cada mensagem possui um identificador único, permitindo detectar mensagens duplicadas após uma recuperação e evitando reprocessamentos indevidos.
-Filas Persistentes: As filas de dados dos subscribers são duráveis, permitindo que mensagens permaneçam disponíveis mesmo durante a reinicialização de um nó consumidor.
+* **Detecção de Falhas: Os subscribers monitoram continuamente a presença do líder através de mensagens de Heartbeat. Caso o heartbeat deixe de ser recebido dentro do tempo limite, uma nova eleição é iniciada automaticamente.
+* **Persistência de Estado: Publishers e Subscribers realizam checkpoints locais periódicos, armazenando informações importantes como relógios vetoriais, estado do nó, mensagens pendentes e histórico de processamento.
+* **Recuperação Automática: Em caso de falha abrupta (por exemplo, utilizando docker kill), o Docker reinicia automaticamente o contêiner. Durante a inicialização, o nó recupera seu último checkpoint válido e continua sua execução sem reiniciar completamente seu estado.
+* **Processamento Seguro de Mensagens: Cada mensagem possui um identificador único, permitindo detectar mensagens duplicadas após uma recuperação e evitando reprocessamentos indevidos.
+* **Filas Persistentes: As filas de dados dos subscribers são duráveis, permitindo que mensagens permaneçam disponíveis mesmo durante a reinicialização de um nó consumidor.
 Persistência
 
 Cada Publisher e Subscriber possui um volume Docker exclusivo para armazenamento dos checkpoints, garantindo que o estado seja preservado mesmo após a recriação do contêiner.
@@ -104,11 +104,11 @@ Cada Publisher e Subscriber possui um volume Docker exclusivo para armazenamento
 Teste de Recuperação
 
 Para simular uma falha, basta finalizar qualquer publisher ou subscriber:
-
+```bash
 docker kill sub_2
-
+```
 ou
-
+``` bash
 docker kill sensor_a
-
+```
 Como os serviços utilizam restart: always, o Docker reiniciará automaticamente o contêiner. Durante a inicialização, o nó restaurará seu último checkpoint e continuará a operação normalmente, preservando o estado previamente armazenado.
