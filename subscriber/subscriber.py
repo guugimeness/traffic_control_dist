@@ -14,9 +14,9 @@ TOTAL_NODES   = int(os.getenv('TOTAL_NODES', '4'))
 
 # Timeouts e intervalos (em segundos)
 HEARTBEAT_INTERVAL  = 5    # Líder envia heartbeat a cada 5s
-HEARTBEAT_TIMEOUT   = 15   # Follower inicia eleição se não receber em 15s
-ELECTION_TIMEOUT    = 6    # Aguarda OK de vizinhos antes de se declarar líder
-QUORUM_TIMEOUT      = 6    # Aguarda ACKs de quórum antes de tentar eleição
+HEARTBEAT_TIMEOUT   = 25   # Follower inicia eleição se não receber em 25s (Tolera latência unidirecional alta)
+ELECTION_TIMEOUT    = 20   # Aguarda OK de vizinhos antes de se declarar líder (RTT máximo sob caos)
+QUORUM_TIMEOUT      = 20   # Aguarda ACKs de quórum antes de tentar eleição (RTT máximo sob caos)
 
 # Estados possíveis do nó
 FOLLOWER   = "FOLLOWER"    # Estado padrão: recebe heartbeats do líder e processa dados de tráfego normalmente
@@ -62,7 +62,7 @@ class SmartTrafficLight:
 
         # Respostas pendentes de eleição/quórum
         self.ok_received      = False
-        self.quorum_acks      = 0
+        self.quorum_acks      = set()
         self.quorum_ack_lock  = threading.Lock()
 
         # Conexões AMQP (canal separado por thread para thread-safety)
@@ -125,15 +125,15 @@ class SmartTrafficLight:
         # Fila durável para mensagens diretas a este nó (caixa postal)
         channel.queue_declare(queue=f'sub_{self.node_id}', durable=True)
 
-        # Fila exclusiva desta CONEXÃO para receber dados de tráfego
-        # exclusive=True: pertence apenas a esta conexão, deletada ao desconectar
-        result = channel.queue_declare(queue='', exclusive=True)
-        self.traffic_queue = result.method.queue
+        # Fila durável desta CONEXÃO para receber dados de tráfego
+        # Assim, se a conexão cair pelo caos, o RabbitMQ guarda as mensagens até o nó reconectar
+        self.traffic_queue = f'traffic_data_sub_{self.node_id}'
+        channel.queue_declare(queue=self.traffic_queue, durable=True)
         channel.queue_bind(exchange='traffic_data', queue=self.traffic_queue)
 
-        # Fila exclusiva desta CONEXÃO para receber broadcasts de eleição
-        result2 = channel.queue_declare(queue='', exclusive=True)
-        self.election_queue = result2.method.queue
+        # Fila durável desta CONEXÃO para receber broadcasts de eleição
+        self.election_queue = f'election_data_sub_{self.node_id}'
+        channel.queue_declare(queue=self.election_queue, durable=True)
         channel.queue_bind(exchange='election', queue=self.election_queue)
 
     def _declare_exchanges(self, channel):
@@ -215,17 +215,27 @@ class SmartTrafficLight:
 
     def _buffer_traffic_message(self, msg):
         # Adiciona mensagem ao buffer causal e tenta desbloquear pendentes.
-        with self.state_lock:
-            if self.state == SAFE_MODE:
-                print(f"[SAFE-MODE] Nó {self.node_id} em modo seguro — mensagem descartada.")
+        # Em SAFE_MODE, não podemos pular a mensagem, senão causamos um buraco eterno
+        # no relógio vetorial. Vamos processá-la normalmente para atualizar o estado interno,
+        # mas a ação no mundo real (ex: mudar a luz do semáforo) é retida no _process_traffic.
+        
+        sender = str(msg['sensor_id'])
+        vc = msg['vector_clock']
+
+        with self.vc_lock:
+            if self.local_vc.get(sender, 0) >= vc.get(sender, 0):
+                print(f"[DESCARTADO] Mensagem antiga/duplicada do Sensor {sender} (VC: {vc})")
                 return
 
         with self.buffer_lock:
+            # Não adicionar se já existe no buffer
+            if any(m['sensor_id'] == msg['sensor_id'] and m['vector_clock'] == msg['vector_clock'] for m in self.causal_buffer):
+                return
             self.causal_buffer.append(msg)
             buf_size = len(self.causal_buffer)
 
-        print(f"[CAUSAL-BUFFER] Mensagem do Sensor {msg['sensor_id']} "
-              f"(VC: {msg['vector_clock']}) adicionada ao buffer. "
+        print(f"[CAUSAL-BUFFER] Mensagem do Sensor {sender} "
+              f"(VC: {vc}) adicionada ao buffer. "
               f"Buffer atual: {buf_size} mensagem(ns).")
 
         self._try_flush_buffer()
@@ -233,14 +243,20 @@ class SmartTrafficLight:
     def _process_traffic(self, msg):
         # Efetivamente processa um dado de tráfego na ordem causal correta.
         with self.state_lock:
-            is_leader = (self.state == LEADER)
-            leader    = self.leader_id
+            state = self.state
+            leader = self.leader_id
 
-        role = f"LÍDER" if is_leader else f"FOLLOWER (líder={leader})"
-        print(f"[PROCESSADO] [{role}] Sensor: {msg['sensor_id']} | "
-              f"Fluxo: {msg['fluxo_veiculos']} veíc/min | "
-              f"VC: {msg['vector_clock']} | "
-              f"Tempo Físico: {msg['physical_timestamp']:.3f}")
+        if state == SAFE_MODE:
+            # Mantém o relógio rodando, mas atua com segurança (sem alterar semáforos reais)
+            print(f"[PROCESSADO-SAFE] Sensor: {msg['sensor_id']} | "
+                  f"VC: {msg['vector_clock']} | "
+                  f"(Luzes congeladas para evitar acidentes)")
+        else:
+            role = f"LÍDER" if state == LEADER else f"FOLLOWER (líder={leader})"
+            print(f"[PROCESSADO] [{role}] Sensor: {msg['sensor_id']} | "
+                  f"Fluxo: {msg['fluxo_veiculos']} veíc/min | "
+                  f"VC: {msg['vector_clock']} | "
+                  f"Tempo Físico: {msg['physical_timestamp']:.3f}")
 
     # Algoritmo de Eleição de Bully
     def _check_quorum(self):
@@ -252,7 +268,7 @@ class SmartTrafficLight:
               f"(necessário: {self.quorum}/{self.total_nodes})...")
 
         with self.quorum_ack_lock:
-            self.quorum_acks = 1  # conta a si mesmo
+            self.quorum_acks = {self.node_id}  # conta a si mesmo (usando Set)
 
         # Broadcast QUORUM_CHECK
         self._broadcast_election({
@@ -264,7 +280,7 @@ class SmartTrafficLight:
         time.sleep(QUORUM_TIMEOUT)
 
         with self.quorum_ack_lock:
-            alive = self.quorum_acks
+            alive = len(self.quorum_acks)
 
         print(f"[QUÓRUM] {alive}/{self.total_nodes} nós responderam.")
 
@@ -391,8 +407,9 @@ class SmartTrafficLight:
 
         if mtype == 'QUORUM_ACK':
             with self.quorum_ack_lock:
-                self.quorum_acks += 1
-            print(f"[QUÓRUM] ACK recebido do nó {sender_id}. Total: {self.quorum_acks}")
+                self.quorum_acks.add(sender_id)
+                current_total = len(self.quorum_acks)
+            print(f"[QUÓRUM] ACK recebido do nó {sender_id}. Total: {current_total}")
 
         elif mtype == 'ELECTION':
             # Recebi ELECTION de um nó com ID menor -> envio OK e inicio minha eleição

@@ -60,6 +60,9 @@ class TrafficSensor:
                 self.channel.queue_declare(queue='time_requests')
                 self.channel.queue_declare(queue=f'time_responses_{self.sensor_id}')
                 
+                # Ativa o Publisher Confirms
+                self.channel.confirm_delivery()
+                
                 print("[REDE] Conectado com sucesso ao RabbitMQ!")
                 break
             except Exception as e:
@@ -134,8 +137,10 @@ class TrafficSensor:
                 if self.connection is None or self.connection.is_closed:
                     self.connect_rabbitmq()
                 
-                # 1. Atualização do Relógio Vetorial (Evento local)
-                self.vector_clock[self.sensor_id] += 1
+                # 1. Previsão do Relógio Vetorial (Sem consolidar ainda)
+                next_vc = self.vector_clock[self.sensor_id] + 1
+                temp_vector_clock = self.vector_clock.copy()
+                temp_vector_clock[self.sensor_id] = next_vc
                 
                 # 2. Geração do Dado Simulado
                 fluxo = random.randint(5, 50)
@@ -144,25 +149,35 @@ class TrafficSensor:
                 payload = {
                     "sensor_id": self.sensor_id,
                     "fluxo_veiculos": fluxo,
-                    "vector_clock": self.vector_clock.copy(),
+                    "vector_clock": temp_vector_clock,
                     "physical_timestamp": timestamp
                 }
                 
                 # 3. Publicação no Broker
+                # O basic_publish bloqueará e lançará exceção se a mensagem não for confirmada (pois ativamos confirm_delivery)
                 self.channel.basic_publish(
                     exchange='traffic_data',
                     routing_key='',
                     body=json.dumps(payload),
                     properties=pika.BasicProperties(
                         delivery_mode=2 # Mensagem persistente
-                    )
+                    ),
+                    mandatory=True
                 )
+                
+                # Se passou sem exceção, então o RabbitMQ recebeu. Consolidamos o incremento.
+                self.vector_clock[self.sensor_id] = next_vc
                 
                 print(f"[PUBLISH] Sensor: {self.sensor_id} | Fluxo: {fluxo} | Vetor: {self.vector_clock} | Tempo Físico: {timestamp:.3f}")
                 time.sleep(random.uniform(2, 5)) 
                 
-            except (pika.exceptions.ConnectionClosedByBroker, pika.exceptions.AMQPChannelError, pika.exceptions.AMQPConnectionError) as e:
-                print(f"[ERRO-REDE] Conexão perdida durante publicação: {e}")
+            except (pika.exceptions.ConnectionClosedByBroker, pika.exceptions.AMQPChannelError, pika.exceptions.AMQPConnectionError, pika.exceptions.UnroutableError) as e:
+                print(f"[ERRO-REDE] Conexão perdida ou falha de entrega durante publicação: {type(e).__name__}")
+                self.connection = None 
+                time.sleep(2)
+            except Exception as e:
+                # Fallback para outras exceções Pika durante a confirmação
+                print(f"[ERRO-REDE] Falha inesperada no publish: {e}")
                 self.connection = None 
                 time.sleep(2)
 
