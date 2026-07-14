@@ -1,12 +1,16 @@
 FROM python:3.11-slim
+
 WORKDIR /app
 
-# Copia o arquivo de dependências e instala
-COPY requirements.txt .
+# Instala as dependências do publisher
+COPY publisher/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o código-fonte do sensor
-COPY publisher.py .
+# Copia o código do publisher
+COPY publisher/publisher.py .
 
-# Executa o produtor com output desativado para logs em tempo real
+# Copia o pacote compartilhado do Módulo 4
+COPY recover ./recover
+
+# Executa o produtor com logs em tempo real
 CMD ["python", "-u", "publisher.py"]

@@ -4,130 +4,248 @@ services:
     image: rabbitmq:3-management
     container_name: rabbitmq
     hostname: rabbitmq
+    restart: always
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_WEB:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks:
       - trafego
 
   chaos:
-    build: ./chaos
+    build:
+      context: ./chaos
     container_name: chaos
     privileged: true
+    restart: always
     network_mode: "service:rabbitmq"
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
 
-  # Módulo 2 (Nomes dos serviços alterados para forçar leitura nova)
+  # -------------------------------------------------------------------------
+  # Módulo 2 — Produtores (Publishers)
+  #
+  # O contexto de build é a raiz do projeto para que o Dockerfile consiga
+  # copiar tanto publisher/ quanto recover/.
+  # -------------------------------------------------------------------------
+
   pub_0:
-    build: ./publisher
+    build:
+      context: .
+      dockerfile: publisher/Dockerfile
     image: sensor_img
     container_name: sensor_ntp
+    restart: always
     environment:
-      - SENSOR_ID=0
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      SENSOR_ID: "0"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      CHECKPOINT_DIR: /data
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-5}
+      SENSOR_HEARTBEAT_INTERVAL: ${SENSOR_HEARTBEAT_INTERVAL:-5}
+      CRISTIAN_SYNC_INTERVAL: ${CRISTIAN_SYNC_INTERVAL:-15}
+    volumes:
+      - pub_0_data:/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - trafego
 
   pub_a:
-    build: ./publisher
+    build:
+      context: .
+      dockerfile: publisher/Dockerfile
     image: sensor_img
     container_name: sensor_a
+    restart: always
     environment:
-      - SENSOR_ID=A
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      SENSOR_ID: "A"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      CHECKPOINT_DIR: /data
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-5}
+      SENSOR_HEARTBEAT_INTERVAL: ${SENSOR_HEARTBEAT_INTERVAL:-5}
+      CRISTIAN_SYNC_INTERVAL: ${CRISTIAN_SYNC_INTERVAL:-15}
+    volumes:
+      - pub_a_data:/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - trafego
 
   pub_b:
-    build: ./publisher
+    build:
+      context: .
+      dockerfile: publisher/Dockerfile
     image: sensor_img
     container_name: sensor_b
+    restart: always
     environment:
-      - SENSOR_ID=B
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      SENSOR_ID: "B"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      CHECKPOINT_DIR: /data
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-5}
+      SENSOR_HEARTBEAT_INTERVAL: ${SENSOR_HEARTBEAT_INTERVAL:-5}
+      CRISTIAN_SYNC_INTERVAL: ${CRISTIAN_SYNC_INTERVAL:-15}
+    volumes:
+      - pub_b_data:/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - trafego
 
-  # Módulo 3 — Semáforos Inteligentes (Subscribers)
+  # -------------------------------------------------------------------------
+  # Módulo 3 + Módulo 4 — Subscribers, liderança e recuperação
+  #
+  # Cada subscriber possui um volume próprio para impedir que checkpoints de
+  # nós diferentes sejam misturados.
+  # -------------------------------------------------------------------------
+
   sub_1:
-    build: ./subscriber
+    build:
+      context: .
+      dockerfile: subscriber/Dockerfile
+    image: subscriber_img
     container_name: sub_1
+    restart: always
     environment:
-      - NODE_ID=1
-      - TOTAL_NODES=4
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      NODE_ID: "1"
+      TOTAL_NODES: "4"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      CHECKPOINT_DIR: /data
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-5}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-5}
+      HEARTBEAT_TIMEOUT: ${HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_HEARTBEAT_TIMEOUT: ${PUBLISHER_HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_SUSPICION_TIMEOUT: ${PUBLISHER_SUSPICION_TIMEOUT:-9}
+      MAX_PROCESSED_IDS: ${MAX_PROCESSED_IDS:-10000}
+    volumes:
+      - sub_1_data:/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - trafego
 
   sub_2:
-    build: ./subscriber
+    build:
+      context: .
+      dockerfile: subscriber/Dockerfile
     image: subscriber_img
     container_name: sub_2
+    restart: always
     environment:
-      - NODE_ID=2
-      - TOTAL_NODES=4
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      NODE_ID: "2"
+      TOTAL_NODES: "4"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      CHECKPOINT_DIR: /data
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-5}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-5}
+      HEARTBEAT_TIMEOUT: ${HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_HEARTBEAT_TIMEOUT: ${PUBLISHER_HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_SUSPICION_TIMEOUT: ${PUBLISHER_SUSPICION_TIMEOUT:-9}
+      MAX_PROCESSED_IDS: ${MAX_PROCESSED_IDS:-10000}
+    volumes:
+      - sub_2_data:/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - trafego
 
   sub_3:
-    build: ./subscriber
+    build:
+      context: .
+      dockerfile: subscriber/Dockerfile
     image: subscriber_img
     container_name: sub_3
+    restart: always
     environment:
-      - NODE_ID=3
-      - TOTAL_NODES=4
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      NODE_ID: "3"
+      TOTAL_NODES: "4"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      CHECKPOINT_DIR: /data
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-5}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-5}
+      HEARTBEAT_TIMEOUT: ${HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_HEARTBEAT_TIMEOUT: ${PUBLISHER_HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_SUSPICION_TIMEOUT: ${PUBLISHER_SUSPICION_TIMEOUT:-9}
+      MAX_PROCESSED_IDS: ${MAX_PROCESSED_IDS:-10000}
+    volumes:
+      - sub_3_data:/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - trafego
 
   sub_4:
-    build: ./subscriber
+    build:
+      context: .
+      dockerfile: subscriber/Dockerfile
     image: subscriber_img
     container_name: sub_4
+    restart: always
     environment:
-      - NODE_ID=4
-      - TOTAL_NODES=4
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      NODE_ID: "4"
+      TOTAL_NODES: "4"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      CHECKPOINT_DIR: /data
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-5}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-5}
+      HEARTBEAT_TIMEOUT: ${HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_HEARTBEAT_TIMEOUT: ${PUBLISHER_HEARTBEAT_TIMEOUT:-15}
+      PUBLISHER_SUSPICION_TIMEOUT: ${PUBLISHER_SUSPICION_TIMEOUT:-9}
+      MAX_PROCESSED_IDS: ${MAX_PROCESSED_IDS:-10000}
+    volumes:
+      - sub_4_data:/data
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - trafego
+
 
 networks:
   trafego:
     driver: bridge
 
-# Módulo 4
-#  recovery:
-#    build: ./recover
+
+volumes:
+  rabbitmq_data:
+
+  pub_0_data:
+  pub_a_data:
+  pub_b_data:
+
+  sub_1_data:
+  sub_2_data:
+  sub_3_data:
+  sub_4_data:
+

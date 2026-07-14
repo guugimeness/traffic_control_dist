@@ -1,12 +1,16 @@
 FROM python:3.11-slim
+
 WORKDIR /app
 
-# Copia o arquivo de dependências e instala
-COPY requirements.txt .
+# Instala dependências
+COPY subscriber/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o código-fonte
-COPY subscriber.py .
+# Copia o código do subscriber
+COPY subscriber/subscriber.py .
 
-# Executa o semáforo com output desativado para logs em tempo real
+# Copia o módulo de recuperação (Módulo 4)
+COPY recover ./recover
+
+# Executa o subscriber
 CMD ["python", "-u", "subscriber.py"]
