@@ -322,6 +322,12 @@ class TrafficSensor:
                 ):
                     self.connect_rabbitmq()
 
+                # Atraso inicial apenas na primeira execução para garantir que 
+                # os subscribers já declararam suas filas duráveis no RabbitMQ.
+                if self.total_confirmed_messages == 0:
+                    print("[INIT] Aguardando 5s para subscribers se conectarem...")
+                    self.stop_event.wait(5.0)
+
                 payload = self._get_or_create_pending_message()
                 self._publish_pending_message(payload)
                 self.stop_event.wait(
