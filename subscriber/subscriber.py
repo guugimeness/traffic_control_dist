@@ -56,9 +56,9 @@ NODE_ID = int(os.getenv("NODE_ID", "1"))
 TOTAL_NODES = int(os.getenv("TOTAL_NODES", "4"))
 
 HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL", "5"))
-HEARTBEAT_TIMEOUT = float(os.getenv("HEARTBEAT_TIMEOUT", "15"))
-ELECTION_TIMEOUT = float(os.getenv("ELECTION_TIMEOUT", "6"))
-QUORUM_TIMEOUT = float(os.getenv("QUORUM_TIMEOUT", "6"))
+HEARTBEAT_TIMEOUT = float(os.getenv("HEARTBEAT_TIMEOUT", "25"))
+ELECTION_TIMEOUT = float(os.getenv("ELECTION_TIMEOUT", "20"))
+QUORUM_TIMEOUT = float(os.getenv("QUORUM_TIMEOUT", "20"))
 
 PUBLISHER_HEARTBEAT_TIMEOUT = float(
     os.getenv("PUBLISHER_HEARTBEAT_TIMEOUT", "15")
@@ -739,6 +739,8 @@ class SmartTrafficLight:
             role = "SAFE_MODE"
         elif current_state == LEADER:
             role = "LÍDER"
+        elif current_state == CANDIDATE:
+            role = f"CANDIDATO (líder={leader})"
         else:
             role = f"FOLLOWER (líder={leader})"
 
@@ -843,6 +845,8 @@ class SmartTrafficLight:
                 )
                 with self.state_lock:
                     self.state = FOLLOWER
+                with self.hb_lock:
+                    self.last_heartbeat = time.time() + QUORUM_TIMEOUT
                 self.save_checkpoint()
 
         finally:
@@ -915,6 +919,8 @@ class SmartTrafficLight:
 
         elif message_type == "COORDINATOR":
             with self.state_lock:
+                if self.state in (LEADER, CANDIDATE) and sender_id < self.node_id:
+                    return
                 self.state = FOLLOWER
                 self.leader_id = sender_id
 
@@ -937,6 +943,9 @@ class SmartTrafficLight:
                 self.last_heartbeat = time.time()
 
             with self.state_lock:
+                if self.state in (LEADER, CANDIDATE) and sender_id < self.node_id:
+                    return
+
                 if (
                     self.state == SAFE_MODE
                     or self.leader_id != sender_id
