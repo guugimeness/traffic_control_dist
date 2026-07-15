@@ -737,15 +737,19 @@ class SmartTrafficLight:
 
         if current_state == SAFE_MODE:
             role = "SAFE_MODE"
+            prefix = "[IGNORADO]"
         elif current_state == LEADER:
             role = "LÍDER"
+            prefix = "[PROCESSADO]"
         elif current_state == CANDIDATE:
             role = f"CANDIDATO (líder={leader})"
+            prefix = "[IGNORADO]" if leader is None else "[PROCESSADO]"
         else:
             role = f"FOLLOWER (líder={leader})"
+            prefix = "[PROCESSADO]"
 
         print(
-            f"[PROCESSADO] [{role}] "
+            f"{prefix} [{role}] "
             f"ID={self._message_id(msg)} | "
             f"Sensor={msg.get('sensor_id')} | "
             f"Fluxo={msg.get('fluxo_veiculos')} veíc/min | "
