@@ -312,6 +312,8 @@ class TrafficSensor:
         )
 
     def publish_data(self) -> None:
+        held_payload = None
+
         while not self.stop_event.is_set():
             try:
                 if (
@@ -329,7 +331,22 @@ class TrafficSensor:
                     self.stop_event.wait(5.0)
 
                 payload = self._get_or_create_pending_message()
+                
+                # SIMULAÇÃO DE INVERSÃO CAUSAL PARA O SEMINÁRIO
+                if held_payload is None and random.random() < 0.15: # 15% de chance de reordenar
+                    print(f"[SIMULAÇÃO] Segurando pacote {payload['message_id']} para forçar inversão!")
+                    held_payload = payload
+                    with self.state_lock:
+                        self.pending_message = None
+                    continue
+
                 self._publish_pending_message(payload)
+                
+                if held_payload is not None:
+                    print(f"[SIMULAÇÃO] Soltando pacote atrasado {held_payload['message_id']}!")
+                    self._publish_pending_message(held_payload)
+                    held_payload = None
+
                 self.stop_event.wait(
                     random.uniform(PUBLISH_MIN_INTERVAL, PUBLISH_MAX_INTERVAL)
                 )
