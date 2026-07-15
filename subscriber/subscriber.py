@@ -979,6 +979,15 @@ class SmartTrafficLight:
             )
 
         elif message_type == "ELECTION":
+            msg_age = time.time() - float(msg.get("timestamp", 0))
+            if msg_age > ELECTION_TIMEOUT:
+                print(
+                    f"[ELEIÇÃO] Mensagem ELECTION obsoleta descartada "
+                    f"(remetente={sender_id}, idade={msg_age:.1f}s > "
+                    f"timeout={ELECTION_TIMEOUT:.1f}s)."
+                )
+                return
+
             print(
                 f"[ELEIÇÃO] Solicitação recebida do nó {sender_id}."
             )

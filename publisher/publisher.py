@@ -146,6 +146,127 @@ class TrafficSensor:
         while not self.stop_event.wait(CHECKPOINT_INTERVAL):
             self.save_checkpoint()
 
+    # -------------------- Relógio vetorial inter-sensor -------------------
+
+    def _merge_remote_vc(self, remote_vc: dict[str, Any]) -> None:
+        """
+        Faz merge (max componente a componente) do vetor recebido de outro
+        sensor no vetor local — regra clássica dos relógios vetoriais de
+        Lamport para eventos de recepção.
+
+        O próprio contador do sensor (self.sensor_id) só é incrementado por
+        _create_pending_message; aqui apenas garantimos que não regrida.
+        """
+        with self.state_lock:
+            for raw_node, raw_clock in remote_vc.items():
+                node = str(raw_node)
+                clock = int(raw_clock)
+                self.vector_clock[node] = max(
+                    self.vector_clock.get(node, 0), clock
+                )
+
+    def vc_sync_worker(self) -> None:
+        """
+        Thread que assina o exchange *traffic_data* com uma fila exclusiva e
+        temporária.  Ao receber uma mensagem de outro sensor, faz merge do
+        relógio vetorial, garantindo que o vetor local reflita os eventos
+        causalmente anteriores conhecidos — base da ordenação causal
+        inter-sensor exigida pela Restrição A do enunciado.
+        """
+        connection: pika.BlockingConnection | None = None
+
+        while not self.stop_event.is_set():
+            try:
+                connection = pika.BlockingConnection(
+                    self._build_connection_parameters()
+                )
+                channel = connection.channel()
+                channel.exchange_declare(
+                    exchange=TRAFFIC_EXCHANGE,
+                    exchange_type="fanout",
+                    durable=True,
+                )
+
+                # Fila exclusiva e auto-delete: não queremos mensagens antigas
+                # (o vetor será construído de forma incremental a partir de
+                # agora) e não precisamos de durabilidade aqui.
+                result = channel.queue_declare(
+                    queue="",
+                    exclusive=True,
+                    auto_delete=True,
+                )
+                sync_queue = result.method.queue
+                channel.queue_bind(
+                    exchange=TRAFFIC_EXCHANGE,
+                    queue=sync_queue,
+                )
+                channel.basic_qos(prefetch_count=50)
+
+                def on_sync_message(
+                    ch: Any,
+                    method: Any,
+                    properties: Any,
+                    body: bytes,
+                ) -> None:
+                    try:
+                        msg = json.loads(body)
+                        sender = str(msg.get("sensor_id", ""))
+                        vc = msg.get("vector_clock", {})
+
+                        if (
+                            sender
+                            and sender != self.sensor_id
+                            and isinstance(vc, dict)
+                        ):
+                            self._merge_remote_vc(vc)
+                            with self.state_lock:
+                                current = self.vector_clock.copy()
+                            print(
+                                f"[VC-SYNC] Sensor={self.sensor_id} | "
+                                f"Merge de {sender}: {vc} | "
+                                f"Vetor local={current}"
+                            )
+
+                        ch.basic_ack(method.delivery_tag)
+
+                    except Exception as sync_err:
+                        print(
+                            f"[VC-SYNC-ERRO] Sensor {self.sensor_id}: "
+                            f"{sync_err}"
+                        )
+                        ch.basic_nack(
+                            method.delivery_tag, requeue=False
+                        )
+
+                channel.basic_consume(
+                    queue=sync_queue,
+                    on_message_callback=on_sync_message,
+                    auto_ack=False,
+                )
+
+                print(
+                    f"[VC-SYNC] Sensor {self.sensor_id} sincronizando "
+                    "VCs inter-sensor."
+                )
+
+                while not self.stop_event.is_set() and connection.is_open:
+                    connection.process_data_events(time_limit=1)
+
+            except Exception as error:
+                print(
+                    f"[VC-SYNC-ERRO] Sensor {self.sensor_id}: "
+                    f"{type(error).__name__}: {error}"
+                )
+                self.stop_event.wait(RECONNECT_DELAY)
+
+            finally:
+                try:
+                    if connection is not None and connection.is_open:
+                        connection.close()
+                except Exception:
+                    pass
+                connection = None
+
     # -------------------------- Relógio físico ------------------------
 
     def local_physical_time(self) -> float:
@@ -608,6 +729,15 @@ class TrafficSensor:
             threading.Thread(
                 target=self.heartbeat_worker,
                 name=f"heartbeat-{self.sensor_id}",
+                daemon=True,
+            ),
+            # Thread de sincronização causal inter-sensor: observa as
+            # mensagens de tráfego publicadas pelos demais sensores e faz
+            # merge do relógio vetorial, garantindo que o vetor enviado em
+            # cada mensagem reflita a causalidade global do sistema.
+            threading.Thread(
+                target=self.vc_sync_worker,
+                name=f"vc-sync-{self.sensor_id}",
                 daemon=True,
             ),
         ]
